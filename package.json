@@ -12,8 +12,6 @@
     "lint": "eslint --fix src __tests__"
   },
   "dependencies": {
-    "@ledgerhq/hw-transport-u2f": "^4.32.0",
-    "@ledgerhq/hw-transport-web-ble": "^4.32.0",
     "axios": "^0.18.0",
     "babel-polyfill": "^6.26.0",
     "base32-encode": "^1.1.0",
@@ -32,6 +30,8 @@
     "varstruct": "^6.1.2"
   },
   "devDependencies": {
+    "@ledgerhq/hw-transport-u2f": "^4.32.0",
+    "@ledgerhq/hw-transport-web-ble": "^4.32.0",
     "@babel/cli": "^7.1.5",
     "@babel/core": "^7.2.0",
     "@babel/plugin-transform-async-to-generator": "^7.1.0",
