@@ -4,6 +4,7 @@
 import * as crypto from "../crypto"
 import Transaction from "../tx"
 import HttpRequest from "../utils/request"
+import Big from 'big.js'
 
 const api = {
   broadcast: "/api/v1/broadcast",
@@ -99,7 +100,7 @@ export class BncClient {
   async transfer(fromAddress, toAddress, amount, asset, memo, sequence) {
     const accCode = crypto.decodeAddress(fromAddress)
     const toAccCode = crypto.decodeAddress(toAddress)
-    amount = amount * Math.pow(10, 8)
+    amount = parseInt(amount * Math.pow(10, 8))
 
     const coin = {
       denom: asset,
@@ -183,14 +184,17 @@ export class BncClient {
       sequence = data.result && data.result.sequence
     }
 
+    const bigPrice = new Big(price)
+    const bigQuantity = new Big(quantity)
+
     const placeOrderMsg = {
       sender: accCode,
       id: `${accCode.toString("hex")}-${sequence+1}`.toUpperCase(),
       symbol: symbol,
       ordertype: 2,
       side,
-      price: Math.floor(price * Math.pow(10, 8)),
-      quantity: Math.floor(quantity * Math.pow(10, 8)),
+      price: parseFloat(bigPrice.mul(Math.pow(10, 8)).toString(), 10),
+      quantity: parseFloat(bigQuantity.mul(Math.pow(10, 8)).toString(), 10),
       timeinforce: timeinforce,
       msgType: "NewOrderMsg",
     }
@@ -284,7 +288,7 @@ export class BncClient {
   }
 
   /**
-   *
+   * Creates a private key.
    * @return {Object}
    * {
    *  address,
@@ -396,5 +400,14 @@ export class BncClient {
    */
   checkAddress(address){
     return crypto.checkAddress(address)
+  }
+
+  /**
+   * Returns the address for the current account if setPrivateKey has been called on this client.
+   * @return {String}
+   */
+  getClientKeyAddress(){
+    if (!this.privateKey) throw new Error('No private key set on client.')
+    return crypto.getAddressFromPrivateKey(this.privateKey)
   }
 }

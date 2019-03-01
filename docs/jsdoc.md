@@ -40,6 +40,7 @@
         * [.recoverAccountFromMneomnic(mneomnic)](#module_client.BncClient+recoverAccountFromMneomnic)
         * [.recoverAccountFromPrivateKey(privateKey)](#module_client.BncClient+recoverAccountFromPrivateKey)
         * [.checkAddress(address)](#module_client.BncClient+checkAddress) ⇒ <code>Boolean</code>
+        * [.getClientKeyAddress()](#module_client.BncClient+getClientKeyAddress) ⇒ <code>String</code>
     * [.DefaultSigningDelegate](#module_client.DefaultSigningDelegate) ⇒ [<code>Transaction</code>](#Transaction)
     * [.LedgerSigningDelegate](#module_client.LedgerSigningDelegate) ⇒ <code>function</code>
 
@@ -64,6 +65,7 @@ The Binance Chain client.
     * [.recoverAccountFromMneomnic(mneomnic)](#module_client.BncClient+recoverAccountFromMneomnic)
     * [.recoverAccountFromPrivateKey(privateKey)](#module_client.BncClient+recoverAccountFromPrivateKey)
     * [.checkAddress(address)](#module_client.BncClient+checkAddress) ⇒ <code>Boolean</code>
+    * [.getClientKeyAddress()](#module_client.BncClient+getClientKeyAddress) ⇒ <code>String</code>
 
 <a name="new_module_client.BncClient_new"></a>
 
@@ -146,6 +148,8 @@ get account
 <a name="module_client.BncClient+createAccount"></a>
 
 #### bncClient.createAccount() ⇒ <code>Object</code>
+Creates a private key.
+
 **Kind**: instance method of [<code>BncClient</code>](#module_client.BncClient)  
 **Returns**: <code>Object</code> - {
  address,
@@ -206,6 +210,12 @@ get account
 | --- | --- |
 | address | <code>String</code> | 
 
+<a name="module_client.BncClient+getClientKeyAddress"></a>
+
+#### bncClient.getClientKeyAddress() ⇒ <code>String</code>
+Returns the address for the current account if setPrivateKey has been called on this client.
+
+**Kind**: instance method of [<code>BncClient</code>](#module_client.BncClient)  
 <a name="module_client.DefaultSigningDelegate"></a>
 
 ### client.DefaultSigningDelegate ⇒ [<code>Transaction</code>](#Transaction)
@@ -251,9 +261,9 @@ The Ledger signing delegate.
     * [.verifySignature](#module_crypto.verifySignature) ⇒ <code>Buffer</code>
     * [.generateKeyStore](#module_crypto.generateKeyStore)
     * [.getPrivateKeyFromKeyStore](#module_crypto.getPrivateKeyFromKeyStore)
-    * [.getMnemonicFromPrivateKey](#module_crypto.getMnemonicFromPrivateKey)
     * [.generateMnemonic](#module_crypto.generateMnemonic)
-    * [.getPrivateKeyFromMnemonic](#module_crypto.getPrivateKeyFromMnemonic)
+    * [.validateMnemonic](#module_crypto.validateMnemonic) ⇒ <code>bool</code>
+    * [.getPrivateKeyFromMnemonic](#module_crypto.getPrivateKeyFromMnemonic) ⇒ <code>string</code>
 
 <a name="module_crypto.decodeAddress"></a>
 
@@ -293,9 +303,15 @@ Encodes an address from input data bytes.
 <a name="module_crypto.generatePrivateKey"></a>
 
 ### crypto.generatePrivateKey ⇒ <code>string</code>
-Generates a random private key
+Generates 32 bytes of random entropy
 
 **Kind**: static constant of [<code>crypto</code>](#module_crypto)  
+**Returns**: <code>string</code> - entropy bytes hexstring  
+
+| Param | Type | Description |
+| --- | --- | --- |
+| len | <code>number</code> | output length (default: 32 bytes) |
+
 <a name="module_crypto.generateRandomArray"></a>
 
 ### crypto.generateRandomArray ⇒ <code>ArrayBuffer</code>
@@ -311,7 +327,7 @@ Generates an arrayBuffer filled with random bits.
 
 ### crypto.getPublicKey ⇒ <code>Elliptic.PublicKey</code>
 **Kind**: static constant of [<code>crypto</code>](#module_crypto)  
-**Returns**: <code>Elliptic.PublicKey</code> - public key  
+**Returns**: <code>Elliptic.PublicKey</code> - public key hexstring  
 
 | Param | Type | Description |
 | --- | --- | --- |
@@ -323,6 +339,7 @@ Generates an arrayBuffer filled with random bits.
 Calculates the public key from a given private key.
 
 **Kind**: static constant of [<code>crypto</code>](#module_crypto)  
+**Returns**: <code>string</code> - public key hexstring  
 
 | Param | Type | Description |
 | --- | --- | --- |
@@ -393,54 +410,57 @@ Verifies a signature (64 byte <r,s>) given the sign bytes and public key.
 <a name="module_crypto.generateKeyStore"></a>
 
 ### crypto.generateKeyStore
-Generates a keystore file based on given private key and password.
+Generates a keystore based on given private key and password.
 
 **Kind**: static constant of [<code>crypto</code>](#module_crypto)  
 
 | Param | Type | Description |
 | --- | --- | --- |
-| privateKey | <code>string</code> | Private Key. |
-| password | <code>string</code> | Password. |
+| privateKey | <code>string</code> | the private key |
+| password | <code>string</code> | the password |
 
 <a name="module_crypto.getPrivateKeyFromKeyStore"></a>
 
 ### crypto.getPrivateKeyFromKeyStore
-Generates privatekey based on keystore and password
+Gets a private key from a keystore given its password.
 
 **Kind**: static constant of [<code>crypto</code>](#module_crypto)  
 
 | Param | Type | Description |
 | --- | --- | --- |
-| keystore | <code>string</code> | keystore file json format. |
-| password | <code>string</code> | Password. |
-
-<a name="module_crypto.getMnemonicFromPrivateKey"></a>
-
-### crypto.getMnemonicFromPrivateKey
-Gets Mnemonic from a private key.
-
-**Kind**: static constant of [<code>crypto</code>](#module_crypto)  
-
-| Param | Type | Description |
-| --- | --- | --- |
-| privateKey | <code>string</code> | the private key hexstring |
+| keystore | <code>string</code> | the keystore in json format |
+| password | <code>string</code> | the password. |
 
 <a name="module_crypto.generateMnemonic"></a>
 
 ### crypto.generateMnemonic
-Generate Mnemonic (length=== 15)
+Generates mnemonic phrase words using random entropy.
 
 **Kind**: static constant of [<code>crypto</code>](#module_crypto)  
+<a name="module_crypto.validateMnemonic"></a>
+
+### crypto.validateMnemonic ⇒ <code>bool</code>
+Validates mnemonic phrase words.
+
+**Kind**: static constant of [<code>crypto</code>](#module_crypto)  
+**Returns**: <code>bool</code> - validation result  
+
+| Param | Type | Description |
+| --- | --- | --- |
+| mnemonic | <code>string</code> | the mnemonic phrase words |
+
 <a name="module_crypto.getPrivateKeyFromMnemonic"></a>
 
-### crypto.getPrivateKeyFromMnemonic
-Get privatekey from mnemonic.
+### crypto.getPrivateKeyFromMnemonic ⇒ <code>string</code>
+Get a private key from mnemonic words.
 
 **Kind**: static constant of [<code>crypto</code>](#module_crypto)  
+**Returns**: <code>string</code> - hexstring  
 
-| Type |
-| --- |
-| <code>mnemonic</code> | 
+| Param | Type | Description |
+| --- | --- | --- |
+| mnemonic | <code>string</code> | the mnemonic phrase words |
+| derive | <code>bool</code> | derive a private key using the default HD path (default: true) |
 
 <a name="module_amino"></a>
 
