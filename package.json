@@ -29,15 +29,15 @@
     "secure-random": "^1.1.1",
     "tiny-secp256k1": "^1.0.1",
     "uuid": "^3.3.2",
-    "varstruct": "^6.1.2"
+    "varstruct": "^6.1.2",
+    "@babel/cli": "^7.1.5",
+    "@babel/core": "^7.2.0",
+    "@babel/plugin-transform-async-to-generator": "^7.1.0",
+    "@babel/preset-env": "^7.1.5"
   },
   "devDependencies": {
     "@ledgerhq/hw-transport-u2f": "^4.32.0",
     "@ledgerhq/hw-transport-web-ble": "^4.32.0",
-    "@babel/cli": "^7.1.5",
-    "@babel/core": "^7.2.0",
-    "@babel/plugin-transform-async-to-generator": "^7.1.0",
-    "@babel/preset-env": "^7.1.5",
     "babel-core": "^7.0.0-0",
     "babel-eslint": "^10.0.1",
     "babel-jest": "^23.6.0",
