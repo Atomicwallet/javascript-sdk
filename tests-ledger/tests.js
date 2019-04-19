@@ -3,8 +3,9 @@
 const { test } = QUnit
 
 const LONG_TIMEOUT = 15000
+
 const EXPECTED_VERSION_MAJOR = 1
-const EXPECTED_VERSION_MINOR = 0
+const EXPECTED_VERSION_MINOR = 1
 
 let isBrowser
 let Ledger, crypto
@@ -22,6 +23,8 @@ if (typeof window !== "undefined") {
   crypto = require("../lib/crypto")
 }
 
+//#region Init Connection
+
 const getApp = async function(timeout = LONG_TIMEOUT) {
   const transClass = isBrowser ? Ledger.transports.u2f : Ledger.transports.node
   const transport = await transClass.create(timeout)
@@ -29,8 +32,6 @@ const getApp = async function(timeout = LONG_TIMEOUT) {
 
   return app
 }
-
-// init connection
 
 QUnit.begin(async function() {
   console.log(
@@ -49,10 +50,13 @@ QUnit.begin(async function() {
   }
 })
 
-// GET_VERSION
+//#endregion
+
+//#region GET_VERSION
 
 QUnit.module("GET_VERSION", {
   before: async function() {
+    response = {} // clear
     try {
       const version = await app.getVersion()
       response = version
@@ -91,16 +95,17 @@ test("app has matching version", function(assert) {
   assert.ok(response.minor === EXPECTED_VERSION_MINOR, "Passed")
 })
 
-// PUBLIC_KEY_SECP256K1
+//#endregion
 
-let pubKey
+//#region PUBLIC_KEY_SECP256K1
+
 QUnit.module("PUBLIC_KEY_SECP256K1", {
   before: async function() {
+    response = {} // clear
     try {
       const hdPath = [44, 714, 0, 0, 0]
       response = await app.getPublicKey(hdPath)
       console.log(response)
-      pubKey = response.pk
     } catch (err) {
       console.error(
         "Error invoking PUBLIC_KEY_SECP256K1. Please connect it and open the app.",
@@ -134,13 +139,51 @@ test("pk does not end in 0x9000", function(assert) {
   assert.notEqual(response.pk[response.pk.length - 1], 0x00, "Passed")
 })
 
-// PUBLIC_KEY_SECP256K1 (bad hdPath throws)
+//#endregion
 
-let badPkErrored, badPkErrorMsg
-QUnit.module("PUBLIC_KEY_SECP256K1", {
+//#region PUBLIC_KEY_SECP256K1 (bad hdPath throws #1)
+
+let badPkErrored, badPkErrorMsg, badPkErrorCode
+QUnit.module("PUBLIC_KEY_SECP256K1 - bad path 1", {
   before: async function() {
+    response = {} // clear
     try {
-      const hdPath = [44] // TOO SHORT
+      const hdPath = [44, 714, 0] // too short
+      response = await app.getPublicKey(hdPath)
+      badPkErrored = false
+    } catch (err) {
+      badPkErrored = true
+      badPkErrorMsg = err.message
+      badPkErrorCode = err.statusCode
+    }
+  }
+})
+
+test("did throw an error", function(assert) {
+  assert.ok(badPkErrored, "Passed")
+})
+
+test("error message is 'Ledger device: UNKNOWN_ERROR (0x6984)'", function(assert) {
+  assert.equal(
+    badPkErrorMsg,
+    "Ledger device: UNKNOWN_ERROR (0x6984)",
+    "Error message is 'Ledger device: UNKNOWN_ERROR (0x6984)'"
+  )
+})
+
+test("status code is 0x6984", function(assert) {
+  assert.equal(badPkErrorCode, 0x6984, "Status code is 0x6984")
+})
+
+//#endregion
+
+//#region PUBLIC_KEY_SECP256K1 (bad hdPath throws #2)
+
+QUnit.module("PUBLIC_KEY_SECP256K1 - bad path 2", {
+  before: async function() {
+    response = {} // clear
+    try {
+      const hdPath = [44, 714, 0, 1, 0] // `change` node must be 0
       response = await app.getPublicKey(hdPath)
       badPkErrored = false
     } catch (err) {
@@ -154,15 +197,180 @@ test("did throw an error", function(assert) {
   assert.ok(badPkErrored, "Passed")
 })
 
-test("error message is 'Invalid path.'", function(assert) {
+test("error message is 'Ledger device: UNKNOWN_ERROR (0x6984)'", function(assert) {
   assert.equal(
     badPkErrorMsg,
-    "Invalid path.",
-    "Error message is 'Invalid path.'"
+    "Ledger device: UNKNOWN_ERROR (0x6984)",
+    "Error message is 'Ledger device: UNKNOWN_ERROR (0x6984)'"
   )
 })
 
-// SIGN CHUNKS
+test("status code is 0x6984", function(assert) {
+  assert.equal(badPkErrorCode, 0x6984, "Status code is 0x6984")
+})
+
+//#endregion
+
+//#region INS_SHOW_ADDR_SECP256K1 (index 0)
+
+QUnit.module("INS_SHOW_ADDR_SECP256K1", {
+  before: async function() {
+    response = {} // clear
+    try {
+      const hdPath = [44, 714, 0, 0, 0]
+      response = await app.showAddress("bnb", hdPath)
+      console.log(response)
+    } catch (err) {
+      console.error(
+        "Error invoking INS_SHOW_ADDR_SECP256K1. Please connect it and open the app.",
+        err
+      )
+    }
+  }
+})
+
+test("status code is 0x9000", function(assert) {
+  assert.equal(response.return_code, 0x9000, "Status code is 0x9000")
+})
+
+//#endregion
+
+//#region INS_SHOW_ADDR_SECP256K1 (other account)
+
+QUnit.module("INS_SHOW_ADDR_SECP256K1 - other account", {
+  before: async function() {
+    response = {} // clear
+    try {
+      const hdPath = [44, 714, 714, 0, 714]
+      response = await app.showAddress("bnb", hdPath)
+      console.log(response)
+    } catch (err) {
+      console.error(
+        "Error invoking INS_SHOW_ADDR_SECP256K1. Please connect it and open the app.",
+        err
+      )
+    }
+  }
+})
+
+test("status code is 0x9000", function(assert) {
+  assert.equal(response.return_code, 0x9000, "Status code is 0x9000")
+})
+
+//#endregion
+
+//#region INS_SHOW_ADDR_SECP256K1 (bad account path)
+
+let badAccountErrored, badAccountErrCode
+QUnit.module("INS_SHOW_ADDR_SECP256K1 - bad account path", {
+  before: async function() {
+    response = {} // clear
+    try {
+      const hdPath = [44, 714, 0, 1, 714]
+      response = await app.showAddress("bnb", hdPath)
+      console.log(response)
+    } catch (err) {
+      badAccountErrored = true
+      badAccountErrCode = err.statusCode
+      console.error(
+        "Error invoking INS_SHOW_ADDR_SECP256K1. Please connect it and open the app.",
+        err
+      )
+    }
+  }
+})
+
+test("did throw an error", function(assert) {
+  assert.ok(badAccountErrored, "Passed")
+})
+
+test("status code is 0x6984", function(assert) {
+  assert.equal(badAccountErrCode, 0x6984, "Status code is 0x6984")
+})
+
+//#endregion
+
+//#region INS_SHOW_ADDR_SECP256K1 (bad hdPath throws)
+
+let badShowAddrErrored, badShowAddrErrorMsg, badShowAddrErrorCode
+QUnit.module("INS_SHOW_ADDR_SECP256K1 - bad path", {
+  before: async function() {
+    response = {} // clear
+    try {
+      const hdPath = [44, 714, 0, 1, 0]
+      response = await app.showAddress("bnb", hdPath)
+      console.log(response)
+      badShowAddrErrored = false
+    } catch (err) {
+      badShowAddrErrored = true
+      badShowAddrErrorMsg = err.message
+      badShowAddrErrorCode = err.statusCode
+      console.error(
+        "Error invoking INS_SHOW_ADDR_SECP256K1. Please connect it and open the app.",
+        err
+      )
+    }
+  }
+})
+
+test("did throw an error", function(assert) {
+  assert.ok(badShowAddrErrored, "Passed")
+})
+
+test("error message is 'Ledger device: UNKNOWN_ERROR (0x6984)'", function(assert) {
+  assert.equal(
+    badShowAddrErrorMsg,
+    "Ledger device: UNKNOWN_ERROR (0x6984)",
+    "Error message is 'Ledger device: UNKNOWN_ERROR (0x6984)'"
+  )
+})
+
+test("status code is 0x6984", function(assert) {
+  assert.equal(badShowAddrErrorCode, 0x6984, "Status code is 0x6984")
+})
+
+//#endregion
+
+//#region INS_SHOW_ADDR_SECP256K1 (too long hrp throws)
+
+QUnit.module("INS_SHOW_ADDR_SECP256K1 - hrp too long", {
+  before: async function() {
+    response = {} // clear
+    try {
+      response = await app.showAddress("tbnbxx")
+      console.log(response)
+      badShowAddrErrored = false
+    } catch (err) {
+      badShowAddrErrored = true
+      badShowAddrErrorMsg = err.message
+      badShowAddrErrorCode = err.statusCode
+      console.error(
+        "Error invoking INS_SHOW_ADDR_SECP256K1. Please connect it and open the app.",
+        err
+      )
+    }
+  }
+})
+
+test("did throw an error", function(assert) {
+  assert.ok(badShowAddrErrored, "Passed")
+})
+
+test("error message is 'Ledger device: UNKNOWN_ERROR (0x6984)'", function(assert) {
+  assert.equal(
+    badShowAddrErrorMsg,
+    "Ledger device: UNKNOWN_ERROR (0x6984)",
+    "Error message is 'Ledger device: UNKNOWN_ERROR (0x6984)'"
+  )
+})
+
+test("status code is 0x6984", function(assert) {
+  assert.equal(badShowAddrErrorCode, 0x6984, "Status code is 0x6984")
+})
+
+//#endregion
+
+//#region SIGN CHUNKS
 
 let chunks
 QUnit.module("SIGN CHUNKS", {
@@ -206,47 +414,20 @@ test("chunk 6 is remainder of message", function(assert) {
   assert.equal(chunks[5].length, 234, "Chunk 5 contains 234 bytes")
 })
 
-// SIGN_SECP256K1 (bad tx throws)
+//#endregion
 
-let badTxErrored, badTxErrorCode
-QUnit.module("SIGN_SECP256K1 - bad tx", {
-  before: async function() {
-    try {
-      // INCORRECT JSON in this tx (data is before chain_id, which is not the correct sort order.)
-      // eslint-disable-next-line quotes
-      const signBytes = `{"account_number":1,"data":"ABCD","chain_id":"bnbchain","memo":"smiley!☺","msgs":["msg"],"sequence":1,"source":1}`
-      response = await app.sign(signBytes)
-      badTxErrored = false
-    } catch (err) {
-      badTxErrored = true
-      badTxErrorCode = err.statusCode
-    }
-  }
-})
-
-test("did throw an error", function(assert) {
-  assert.ok(badTxErrored, "Passed")
-})
-
-test("status code is 0x6A80", function(assert) {
-  assert.equal(badTxErrorCode, 0x6a80, "Status code is 0x6A80")
-})
-
-test("does not have property signature", function(assert) {
-  assert.ok(response.signature === undefined, "Passed")
-})
-
-// SIGN_SECP256K1 (good tx)
+//#region SIGN_SECP256K1 (good tx)
 
 QUnit.module("SIGN_SECP256K1 - good tx", {
   before: async function() {
+    response = {} // clear
     try {
       // this tx msg is a real BNC TX (no fee, with source and data)
       // eslint-disable-next-line quotes
-      const signBytes = `{"account_number":"12","chain_id":"bnbchain","data":null,"memo":"smiley!☺","msgs":[{"id":"BA36F0FAD74D8F41045463E4774F328F4AF779E5-4","ordertype":2,"price":1612345678,"quantity":123456,"sender":"bnc1hgm0p7khfk85zpz5v0j8wnej3a90w7098fpxyh","side":1,"symbol":"NNB-338_BNB","timeinforce":1}],"sequence":"3","source":"1"}`
-      const hdPath = [44, 714, 0, 0, 0]
-      // app = await getApp(LONG_TIMEOUT)
-      response = await app.sign(signBytes, hdPath)
+      const signBytes = `{"account_number":"12","chain_id":"bnbchain","data":null,"memo":"smiley!☺","msgs":[{"id":"BA36F0FAD74D8F41045463E4774F328F4AF779E5-4","ordertype":2,"price":1612345678,"quantity":123456,"sender":"bnc1hgm0p7khfk85zpz5v0j8wnej3a90w7098fpxyh","side":1,"symbol":"NNB-338_BNB","timeinforce":3}],"sequence":"3","source":"1"}`
+      const hdPathSign = [44, 714, 0, 0, 1]
+      await app.showAddress("bnb", hdPathSign)  // prime the device with this hd path
+      response = await app.sign(signBytes, hdPathSign)
       console.log(response)
     } catch (err) {
       console.error(
@@ -272,17 +453,23 @@ test("signature size is within range 64-65", function(assert) {
   )
 })
 
-// SIGN_SECP256K1 (good multi-send tx with data)
+//#endregion
+
+//#region SIGN_SECP256K1 (good transfer tx with data)
 
 // this tx msg follows the BNC structure (no fee, + source and data)
 // eslint-disable-next-line quotes
-const signBytes = `{"account_number":"12","chain_id":"chain-bnb","data":"DATASTUFF","memo":"MEMOSTUFF","msgs":[{"inputs":[{"address":"bnc1hgm0p7khfk85zpz5v0j8wnej3a90w7098fpxyh","coins":[{"amount":200000000,"denom":"BNB"},{"amount":2000000,"denom":"NNB-0AB"}]}],"outputs":[{"address":"bnc1cku54wwn66w2rkgs3h6v5zxrwtzyew8chcl720","coins":[{"amount":200000000,"denom":"BNB"}]},{"address":"bnc1cku54wwn66w2rkgs3h6v5zxrwtzyew8chcl720","coins":[{"amount":2000000,"denom":"NNB-0AB"}]}]}],"sequence":"64","source":"1"}`
-QUnit.module("SIGN_SECP256K1 - good multi-send tx with data", {
+const xferSignBytes = `{"account_number":"1","chain_id":"Binance-Chain-Test","data":"DATA","memo":"","msgs":[{"inputs":[{"address":"tbnb1hlly02l6ahjsgxw9wlcswnlwdhg4xhx3f309d9","coins":[{"amount":10000000000,"denom":"BNB"}]}],"outputs":[{"address":"tbnb1hlly02l6ahjsgxw9wlcswnlwdhg4xhx3f309d9","coins":[{"amount":10000000000,"denom":"BNB"}]}]}],"sequence":"2","source":"1"}`
+let pubKey
+QUnit.module("SIGN_SECP256K1 - good transfer tx with data", {
   before: async function() {
+    response = {} // clear
     try {
-      const hdPath = [44, 714, 0, 0, 0]
-      // app = await getApp(LONG_TIMEOUT)
-      response = await app.sign(signBytes, hdPath)
+      const hdPathSign = [44, 714, 0, 0, 10]
+      const pkResp = await app.getPublicKey(hdPathSign) // sets the last "viewed" hd path on the device
+      await app.showAddress("bnb", hdPathSign)  // prime the device with this hd path
+      pubKey = pkResp.pk
+      response = await app.sign(xferSignBytes, hdPathSign)
       console.log(response)
     } catch (err) {
       console.error(
@@ -313,9 +500,141 @@ test("signature passes verification", function(assert) {
   assert.ok(
     crypto.verifySignature(
       sig,
-      Buffer.from(signBytes, "utf8").toString("hex"),
+      Buffer.from(xferSignBytes, "utf8").toString("hex"),
       pubKey.toString("hex")
     ),
     "Signature OK"
   )
 })
+
+//#endregion
+
+//#region SIGN_SECP256K1 (cancel order tx)
+
+// this tx msg follows the BNC structure (no fee, + source and data)
+// eslint-disable-next-line quotes
+const cancelSignBytes = `{"account_number":"1","chain_id":"Binance-Chain-Test","data":null,"memo":"MEMO","msgs":[{"refid":"B71E119324558ABA3AE3F5BC854F1225132465A0-0","sender":"tbnb1hlly02l6ahjsgxw9wlcswnlwdhg4xhx3f309d9","symbol":"BTC-0AB_BNB"}],"sequence":"2","source":"1"}`
+QUnit.module("SIGN_SECP256K1 - good cancel tx", {
+  before: async function() {
+    response = {} // clear
+    try {
+      const hdPathSign = [44, 714, 0, 0, 0]
+      const pkResp = await app.getPublicKey(hdPathSign) // sets the last "viewed" hd path on the device
+      await app.showAddress("bnb", hdPathSign)  // prime the device with this hd path
+      response = await app.sign(cancelSignBytes, hdPathSign)
+      pubKey = pkResp.pk
+      console.log(response)
+    } catch (err) {
+      console.error(
+        "Error invoking SIGN_SECP256K1. Please connect it and open the app.",
+        err
+      )
+    }
+  }
+})
+
+test("status code is 0x9000", function(assert) {
+  assert.equal(response.return_code, 0x9000, "Status code is 0x9000")
+})
+
+test("has property signature", function(assert) {
+  assert.ok(response.signature !== undefined, "Passed")
+})
+
+test("signature size is within range 64-65", function(assert) {
+  assert.ok(
+    64 <= response.signature.length && response.signature.length <= 65,
+    "Passed"
+  )
+})
+
+test("signature passes verification", function(assert) {
+  const sig = response.signature
+  assert.ok(
+    crypto.verifySignature(
+      sig,
+      Buffer.from(cancelSignBytes, "utf8").toString("hex"),
+      pubKey.toString("hex")
+    ),
+    "Signature OK"
+  )
+})
+
+//#endregion
+
+//#region SIGN_SECP256K1 (bad tx throws)
+
+let badTxErrored, badTxErrorCode
+QUnit.module("SIGN_SECP256K1 - bad tx content", {
+  before: async function() {
+    response = {} // clear
+    try {
+      // INCORRECT JSON in this tx (data is before chain_id, which is not the correct sort order.)
+      // eslint-disable-next-line quotes
+      const signBytes = `{"account_number":1,"data":"ABCD","chain_id":"bnbchain","memo":"smiley!☺","msgs":["msg"],"sequence":1,"source":1}`
+      response = {}
+      const hdPathSign = [44, 714, 0, 0, 0]
+      await app.showAddress("bnb", hdPathSign)  // prime the device with this hd path
+      response = await app.sign(signBytes, hdPathSign)
+      badTxErrored = false
+    } catch (err) {
+      badTxErrored = true
+      badTxErrorCode = err.statusCode
+    }
+  }
+})
+
+test("did throw an error", function(assert) {
+  assert.ok(badTxErrored, "Passed")
+})
+
+test("status code is 0x6A80", function(assert) {
+  assert.equal(badTxErrorCode, 0x6a80, "Status code is 0x6A80")
+})
+
+test("does not have property signature", function(assert) {
+  assert.ok(response.signature === undefined, "Passed")
+})
+
+//#endregion
+
+//#region SIGN_SECP256K1 (sign with different, vs the viewed, hd path throws)
+
+let badSignHdPathErrored, badSignHdPathErrorCode
+QUnit.module("SIGN_SECP256K1 - different prior hd path", {
+  before: async function() {
+    response = {} // clear
+    try {
+      // this tx msg is a real BNC TX (no fee, with source and data)
+      // eslint-disable-next-line quotes
+      const signBytes = `{"account_number":"12","chain_id":"bnbchain","data":null,"memo":"smiley!☺","msgs":[{"id":"BA36F0FAD74D8F41045463E4774F328F4AF779E5-4","ordertype":2,"price":1612345678,"quantity":123456,"sender":"bnc1hgm0p7khfk85zpz5v0j8wnej3a90w7098fpxyh","side":1,"symbol":"NNB-338_BNB","timeinforce":3}],"sequence":"3","source":"1"}`
+      const hdPathView = [44, 714, 1, 0, 0]
+      await app.showAddress("bnb", hdPathView)  // prime the device with this hd path
+      const hdPathSign = [44, 714, 0, 0, 0]
+      response = await app.sign(signBytes, hdPathSign)
+      console.log(response)
+      badSignHdPathErrored = false
+    } catch (err) {
+      badSignHdPathErrored = true
+      badSignHdPathErrorCode = err.statusCode
+      console.error(
+        "Error invoking SIGN_SECP256K1. Please connect it and open the app.",
+        err
+      )
+    }
+  }
+})
+
+test("did throw an error", function(assert) {
+  assert.ok(badSignHdPathErrored, "Passed")
+})
+
+test("status code is 0x6984", function(assert) {
+  assert.equal(badSignHdPathErrorCode, 0x6984, "Status code is 0x6984")
+})
+
+test("does not have property signature", function(assert) {
+  assert.ok(response.signature === undefined, "Passed")
+})
+
+//#endregion

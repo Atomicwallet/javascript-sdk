@@ -6,9 +6,9 @@ import csprng from "secure-random"
 import bech32 from "bech32"
 import cryp from "crypto-browserify"
 import uuid from "uuid"
-import _ from "lodash"
-import bip39 from "bip39"
+import is from "is_js"
 import bip32 from "bip32"
+import  * as bip39  from "bip39"
 import { ec as EC } from "elliptic"
 import ecc from "tiny-secp256k1"
 
@@ -44,7 +44,8 @@ export const decodeAddress = (value) => {
 export const checkAddress = (address) => {
   try {
     const decodeAddress = bech32.decode(address)
-    if(decodeAddress.prefix === "tbnb") {
+    if(decodeAddress.prefix === "tbnb" || 
+       decodeAddress.prefix === "bnb") {
       return true
     }
 
@@ -115,14 +116,15 @@ export const generatePubKey = privateKey => {
 /**
  * Gets an address from a public key hex.
  * @param {string} publicKeyHex the public key hexstring
+ * @param {string} prefix the address prefix
  */
-export const getAddressFromPublicKey = publicKeyHex => {
+export const getAddressFromPublicKey = (publicKeyHex, prefix) => {
   const pubKey = ec.keyFromPublic(publicKeyHex, "hex")
   const pubPoint = pubKey.getPublic()
   const compressed = pubPoint.encodeCompressed()
   const hexed = ab2hexstring(compressed)
   const hash = sha256ripemd160(hexed) // https://git.io/fAn8N
-  const address = encodeAddress(hash)
+  const address = encodeAddress(hash, prefix)
   return address
 }
 
@@ -130,8 +132,8 @@ export const getAddressFromPublicKey = publicKeyHex => {
  * Gets an address from a private key.
  * @param {string} privateKeyHex the private key hexstring
  */
-export const getAddressFromPrivateKey = privateKeyHex => {
-  return getAddressFromPublicKey(getPublicKeyFromPrivateKey(privateKeyHex))
+export const getAddressFromPrivateKey = (privateKeyHex, prefix) => {
+  return getAddressFromPublicKey(getPublicKeyFromPrivateKey(privateKeyHex), prefix)
 }
 
 /**
@@ -215,11 +217,11 @@ export const generateKeyStore = (privateKeyHex, password) => {
  */
 export const getPrivateKeyFromKeyStore = (keystore, password) => {
 
-  if (!_.isString(password)) {
+  if (!is.string(password)) {
     throw new Error("No password given.")
   }
 
-  const json = _.isObject(keystore) ? keystore : JSON.parse(keystore)
+  const json = is.object(keystore) ? keystore : JSON.parse(keystore)
   const kdfparams = json.crypto.kdfparams
 
   if (kdfparams.prf !== "hmac-sha256") {
@@ -263,7 +265,7 @@ export const getPrivateKeyFromMnemonic = (mnemonic, derive = true) => {
   if(!bip39.validateMnemonic(mnemonic)){
     throw new Error("wrong mnemonic format")
   }
-  const seed = bip39.mnemonicToSeed(mnemonic)
+  const seed = bip39.mnemonicToSeedSync(mnemonic)
   if (derive) {
     const master = bip32.fromSeed(seed)
     const child = master.derivePath(HDPATH)
