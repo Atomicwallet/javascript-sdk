@@ -10,8 +10,7 @@
     "build": "rm -rf lib && npx babel src -d lib",
     "build:docs": "npx jsdoc-to-markdown -f src/**/*.js > docs/jsdoc.md",
     "prepublishOnly": "npm run build",
-    "lint": "eslint --fix src __tests__",
-    "postinstall": "npm run build"
+    "lint": "eslint --fix src __tests__"
   },
   "dependencies": {
     "axios": "^0.18.0",
