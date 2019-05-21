@@ -35,7 +35,7 @@ describe("encoder", () => {
   it("encode bool", () => {
     let encodedTrue = encoder.encodeBool(true)
     encodedTrue = encodedTrue.toString("hex")
-    expect(encodedTrue).toBe("02")
+    expect(encodedTrue).toBe("01")
 
     let encodedFalse = encoder.encodeBool(false)
     encodedFalse = encodedFalse.toString("hex")
@@ -43,7 +43,8 @@ describe("encoder", () => {
   })
 
   it("encode string", () => {
-    let encodedString = encoder.encodeString("You are beautiful")
+    const str = "You are beautiful"
+    let encodedString = encoder.encodeString(str)
     encodedString = encodedString.toString("hex")
     expect(encodedString).toBe("11596f75206172652062656175746966756c")
   })
