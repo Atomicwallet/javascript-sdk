@@ -14,6 +14,7 @@ import ecc from "tiny-secp256k1"
 
 import {
   ab2hexstring,
+  sha3,
   sha256,
   sha256ripemd160,
 } from "../utils"
@@ -24,7 +25,7 @@ const MNEMONIC_LEN = 256
 const CURVE = "secp256k1"
 
 //hdpath
-const HDPATH = "44'/714'/0'/0/0"
+const HDPATH = "44'/714'/0'/0/"
 
 const ec = new EC(CURVE)
 
@@ -38,13 +39,14 @@ export const decodeAddress = (value) => {
 }
 
 /**
- * checek address whether is valid
+ * Checks whether an address is valid.
  * @param {string} address the bech32 address to decode
+ * @return {boolean}
  */
 export const checkAddress = (address) => {
   try {
     const decodeAddress = bech32.decode(address)
-    if(decodeAddress.prefix === "tbnb" || 
+    if(decodeAddress.prefix === "tbnb" ||
        decodeAddress.prefix === "bnb") {
       return true
     }
@@ -165,7 +167,7 @@ export const verifySignature = (sigHex, signBytesHex, publicKeyHex) => {
 }
 
 /**
- * Generates a keystore based on given private key and password.
+ * Generates a keystore object (web3 secret storage format) given a private key to store and a password.
  * @param {string} privateKeyHex the private key hexstring.
  * @param {string} password the password.
  * @return {object} the keystore object.
@@ -205,7 +207,8 @@ export const generateKeyStore = (privateKeyHex, password) => {
       cipher: cipherAlg,
       kdf,
       kdfparams: kdfparams,
-      mac: sha256(bufferValue.toString("hex"))
+      // mac must use sha3 according to web3 secret storage spec
+      mac: sha3(bufferValue.toString("hex"))
     }
   }
 }
@@ -231,10 +234,16 @@ export const getPrivateKeyFromKeyStore = (keystore, password) => {
   const derivedKey = cryp.pbkdf2Sync(Buffer.from(password), Buffer.from(kdfparams.salt, "hex"), kdfparams.c, kdfparams.dklen, "sha256")
   const ciphertext = Buffer.from(json.crypto.ciphertext, "hex")
   const bufferValue = Buffer.concat([derivedKey.slice(16, 32), ciphertext])
-  const mac = sha256(bufferValue.toString("hex"))
 
+  // try sha3 (new / ethereum keystore) mac first
+  const mac = sha3(bufferValue.toString("hex"))
   if (mac !== json.crypto.mac) {
-    throw new Error("Key derivation failed - possibly wrong password")
+    // the legacy (sha256) mac is next to be checked. pre-testnet keystores used a sha256 digest for the mac.
+    // the sha256 mac was not compatible with ethereum keystores, so it was changed to sha3 for mainnet.
+    const macLegacy = sha256(bufferValue.toString("hex"))
+    if (macLegacy !== json.crypto.mac) {
+      throw new Error("Keystore mac check failed (sha3 & sha256) - wrong password?")
+    }
   }
 
   const decipher = cryp.createDecipheriv(json.crypto.cipher, derivedKey.slice(0, 32), Buffer.from(json.crypto.cipherparams.iv, "hex"))
@@ -259,16 +268,17 @@ export const validateMnemonic = bip39.validateMnemonic
  * Get a private key from mnemonic words.
  * @param {string} mnemonic the mnemonic phrase words
  * @param {Boolean} derive derive a private key using the default HD path (default: true)
+ * @param {number} index the bip44 address index (default: 0)
  * @return {string} hexstring
  */
-export const getPrivateKeyFromMnemonic = (mnemonic, derive = true) => {
+export const getPrivateKeyFromMnemonic = (mnemonic, derive = true, index = 0) => {
   if(!bip39.validateMnemonic(mnemonic)){
     throw new Error("wrong mnemonic format")
   }
   const seed = bip39.mnemonicToSeedSync(mnemonic)
   if (derive) {
     const master = bip32.fromSeed(seed)
-    const child = master.derivePath(HDPATH)
+    const child = master.derivePath(HDPATH + index)
     return child.privateKey.toString("hex")
   }
   return seed.toString("hex")

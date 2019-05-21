@@ -1,12 +1,12 @@
 /**
- * @module amino
+ * @module amino-encode
  */
 
 import vstruct from "varstruct"
 import { Buffer } from "safe-buffer"
 import is from "is_js"
 
-import VarInt, { UVarInt } from "./varint"
+import { UVarInt } from "./varint"
 import typeToTyp3 from "../utils/encoderHelper"
 import { typePrefix } from "../tx/"
 
@@ -36,7 +36,7 @@ export const encodeNumber = (num) => UVarInt.encode(num)
  * encode bool
  * @param b
  */
-export const encodeBool = (b) => b ? VarInt.encode(1): VarInt.encode(0)
+export const encodeBool = (b) => b ? UVarInt.encode(1): UVarInt.encode(0)
 
 /**
  * encode string
@@ -79,7 +79,7 @@ export const marshalBinary = (obj) => {
   if (!is.object(obj))
     throw new TypeError("data must be an object")
 
-  return encodeBinary(obj, null, true).toString("hex")
+  return encodeBinary(obj, -1, true).toString("hex")
 }
 
 /**
@@ -105,32 +105,31 @@ export const encodeBinary = (val, fieldNum, isByteLenPrefix) => {
     throw new TypeError("unsupported type")
 
   if(Buffer.isBuffer(val)) {
-    if(isByteLenPrefix){
+    if(isByteLenPrefix) {
       return Buffer.concat([UVarInt.encode(val.length), val])
     }
     return val
   }
 
-  if(is.array(val)){
+  if(is.array(val)) {
     return encodeArrayBinary(fieldNum, val, isByteLenPrefix)
   }
 
-  if(is.number(val)){
+  if(is.number(val)) {
     return encodeNumber(val)
   }
 
-  if(is.boolean(val)){
+  if(is.boolean(val)) {
     return encodeBool(val)
   }
 
-  if(is.string(val)){
+  if(is.string(val)) {
     return encodeString(val)
   }
 
-  if(is.object(val)){
+  if(is.object(val)) {
     return encodeObjectBinary(val, isByteLenPrefix)
   }
-
 
   return
 }
