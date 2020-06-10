@@ -15,6 +15,9 @@
  *  limitations under the License.
  ********************************************************************************/
 
+// intentionally ambiguous to confuse webpack (we don't need this in web builds)
+const LEDGER_NODE_HID_TRANSPORT_MODULE = "@ledgerhq/hw-transport-node-hid"
+
 const isBrowser = typeof window !== "undefined"
 const Ledger = module.exports
 
@@ -24,8 +27,13 @@ Ledger.transports = {
   u2f: require("@ledgerhq/hw-transport-u2f").default,
   wble: require("@ledgerhq/hw-transport-web-ble").default,
 
-  // requiring the node transport in the browser causes a bit of an issue with webpack!
-  node: !isBrowser ? require("@ledgerhq/hw-transport-node-hid").default : null,
+  // requiring the node transport in the browser causes a bit of an issue with webpack! this is a conditional require
+  node: !isBrowser && moduleExists(LEDGER_NODE_HID_TRANSPORT_MODULE) ? require(LEDGER_NODE_HID_TRANSPORT_MODULE).default : null,
 }
 
 module.exports = Ledger
+
+function moduleExists(name) {
+  try { return require.resolve(name) }
+  catch (e) { return false }
+}

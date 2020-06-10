@@ -8,7 +8,7 @@ import cryp from "crypto-browserify"
 import uuid from "uuid"
 import is from "is_js"
 import bip32 from "bip32"
-import  * as bip39  from "bip39"
+import * as bip39 from "bip39"
 import { ec as EC } from "elliptic"
 import ecc from "tiny-secp256k1"
 
@@ -22,6 +22,7 @@ import {
 // secp256k1 privkey is 32 bytes
 const PRIVKEY_LEN = 32
 const MNEMONIC_LEN = 256
+const DECODED_ADDRESS_LEN = 20
 const CURVE = "secp256k1"
 
 //hdpath
@@ -41,18 +42,24 @@ export const decodeAddress = (value) => {
 /**
  * Checks whether an address is valid.
  * @param {string} address the bech32 address to decode
+ * @param {string} hrp the prefix to check for the bech32 address 
  * @return {boolean}
  */
-export const checkAddress = (address) => {
+export const checkAddress = (address, hrp) => {
   try {
-    const decodeAddress = bech32.decode(address)
-    if(decodeAddress.prefix === "tbnb" ||
-       decodeAddress.prefix === "bnb") {
+    if (!address.startsWith(hrp)){
+      return false
+    }
+
+    const decodedAddress = bech32.decode(address)
+    const decodedAddressLength = decodeAddress(address).length
+    if (decodedAddressLength === DECODED_ADDRESS_LEN &&
+      decodedAddress.prefix === hrp) {
       return true
     }
 
     return false
-  } catch(err) {
+  } catch (err) {
     return false
   }
 }
@@ -97,6 +104,9 @@ export const getPublicKey = publicKey => {
  * @return {string} public key hexstring
  */
 export const getPublicKeyFromPrivateKey = privateKeyHex => {
+  if (!privateKeyHex || privateKeyHex.length !== PRIVKEY_LEN * 2) {
+    throw new Error("invalid privateKey")
+  }
   const curve = new EC(CURVE)
   const keypair = curve.keyFromPrivate(privateKeyHex, "hex")
   const unencodedPubKey = keypair.getPublic().encode("hex")
@@ -269,13 +279,15 @@ export const validateMnemonic = bip39.validateMnemonic
  * @param {string} mnemonic the mnemonic phrase words
  * @param {Boolean} derive derive a private key using the default HD path (default: true)
  * @param {number} index the bip44 address index (default: 0)
+ * @param {string} password according to bip39
  * @return {string} hexstring
  */
-export const getPrivateKeyFromMnemonic = (mnemonic, derive = true, index = 0) => {
-  if(!bip39.validateMnemonic(mnemonic)){
+export const getPrivateKeyFromMnemonic = (mnemonic, derive = true, index = 0, password = "") => {
+
+  if (!bip39.validateMnemonic(mnemonic)) {
     throw new Error("wrong mnemonic format")
   }
-  const seed = bip39.mnemonicToSeedSync(mnemonic)
+  const seed = bip39.mnemonicToSeedSync(mnemonic, password)
   if (derive) {
     const master = bip32.fromSeed(seed)
     const child = master.derivePath(HDPATH + index)

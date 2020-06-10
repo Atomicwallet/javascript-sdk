@@ -1,5 +1,5 @@
 /**
- * @module amino-encode
+ * @module amino.encode
  */
 
 import vstruct from "varstruct"
@@ -8,7 +8,7 @@ import is from "is_js"
 
 import { UVarInt } from "./varint"
 import typeToTyp3 from "../utils/encoderHelper"
-import { typePrefix } from "../tx/"
+import { TypePrefixes } from "../tx/"
 
 const VarString = vstruct.VarString(UVarInt)
 
@@ -168,8 +168,8 @@ export const encodeObjectBinary = (obj, isByteLenPrefix) => {
   let bytes = Buffer.concat(bufferArr)
 
   // add prefix
-  if(typePrefix[obj.msgType]) {
-    const prefix = Buffer.from(typePrefix[obj.msgType], "hex")
+  if(TypePrefixes[obj.msgType]) {
+    const prefix = Buffer.from(TypePrefixes[obj.msgType], "hex")
     bytes = Buffer.concat([prefix, bytes])
   }
 
@@ -223,4 +223,5 @@ const isDefaultValue = (obj) => {
   return (is.number(obj) && obj === 0)
         || (is.string(obj) && obj === "")
         || (is.array(obj) && obj.length === 0)
+        || (is.boolean(obj) && !obj)
 }

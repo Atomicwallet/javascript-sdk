@@ -2,12 +2,12 @@ import * as crypto from "../crypto/"
 import * as encoder from "../encoder/"
 import { UVarInt } from "../encoder/varint"
 
-export const txType = {
+export const TxTypes = {
   MsgSend: "MsgSend",
   NewOrderMsg: "NewOrderMsg",
   CancelOrderMsg: "CancelOrderMsg",
   IssueMsg: "IssueMsg",
-  BurnMsg: "BurnMsg", 
+  BurnMsg: "BurnMsg",
   FreezeMsg: "FreezeMsg",
   UnfreezeMsg: "UnfreezeMsg",
   MintMsg: "MintMsg",
@@ -15,9 +15,20 @@ export const txType = {
   StdTx: "StdTx",
   PubKeySecp256k1: "PubKeySecp256k1",
   SignatureSecp256k1: "SignatureSecp256k1",
+  MsgSubmitProposal: "MsgSubmitProposal",
+  MsgDeposit: "MsgDeposit",
+  MsgVote: "MsgVote",
+  TimeLockMsg: "TimeLockMsg",
+  TimeUnlockMsg: "TimeUnlockMsg",
+  TimeRelockMsg: "TimeRelockMsg",
+  HTLTMsg: "HTLTMsg",
+  DepositHTLTMsg: "DepositHTLTMsg",
+  ClaimHTLTMsg: "ClaimHTLTMsg",
+  RefundHTLTMsg: "RefundHTLTMsg",
+  SetAccountFlagsMsg: "SetAccountFlagsMsg"
 }
 
-export const typePrefix = {
+export const TypePrefixes = {
   MsgSend: "2A2C87FA",
   NewOrderMsg: "CE6DC043",
   CancelOrderMsg: "166E681B",
@@ -30,6 +41,17 @@ export const typePrefix = {
   StdTx: "F0625DEE",
   PubKeySecp256k1: "EB5AE987",
   SignatureSecp256k1: "7FC4A495",
+  MsgSubmitProposal: "B42D614E",
+  MsgDeposit: "A18A56E5",
+  MsgVote: "A1CADD36",
+  TimeLockMsg: "07921531",
+  TimeUnlockMsg: "C4050C6C",
+  TimeRelockMsg: "504711DA",
+  HTLTMsg: "B33F9A24",
+  DepositHTLTMsg: "63986496",
+  ClaimHTLTMsg: "C1665300",
+  RefundHTLTMsg: "3454A27C",
+  SetAccountFlagsMsg: "BEA6E301"
 }
 
 /**
@@ -42,6 +64,7 @@ export const typePrefix = {
  *   msg: {},
  *   type: 'NewOrderMsg',
  *   sequence: 29,
+ *   source: 0
  * };
  * var tx = new Transaction(rawTx);
  * @property {Buffer} raw The raw vstruct encoded transaction
@@ -51,14 +74,15 @@ export const typePrefix = {
  * @param {String} type transaction type
  * @param {Object} data.msg object data of tx type
  * @param {Number} data.sequence transaction counts
+ * @param {Number} data.source where does this transaction come from
  */
 class Transaction {
   constructor(data) {
-    if(!txType[data.type]) {
+    if (!TxTypes[data.type]) {
       throw new TypeError(`does not support transaction type: ${data.type}`)
     }
 
-    if(!data.chain_id) {
+    if (!data.chain_id) {
       throw new Error("chain id should not be null")
     }
 
@@ -70,6 +94,7 @@ class Transaction {
     this.chain_id = data.chain_id
     this.msgs = data.msg ? [data.msg] : []
     this.memo = data.memo
+    this.source = data.source || 0 // default value is 0
   }
 
   /**
@@ -78,7 +103,7 @@ class Transaction {
    * @return {Buffer}
    **/
   getSignBytes(msg) {
-    if(!msg){
+    if (!msg) {
       throw new Error("msg should be an object")
     }
     const signMsg = {
@@ -88,7 +113,7 @@ class Transaction {
       "memo": this.memo,
       "msgs": [msg],
       "sequence": this.sequence.toString(),
-      "source": "1"
+      "source": this.source.toString()
     }
 
     return encoder.convertObjectToSignBytes(signMsg)
@@ -118,6 +143,14 @@ class Transaction {
    * @return {Transaction}
    **/
   sign(privateKey, msg) {
+    if(!privateKey){
+      throw new Error("private key should not be null")
+    }
+
+    if(!msg){
+      throw new Error("signing message should not be null")
+    }
+
     const signBytes = this.getSignBytes(msg)
     const privKeyBuf = Buffer.from(privateKey, "hex")
     const signature = crypto.generateSignature(signBytes.toString("hex"), privKeyBuf)
@@ -129,8 +162,8 @@ class Transaction {
    * encode signed transaction to hex which is compatible with amino
    * @param {object} opts msg field
    */
-  serialize(){
-    if(!this.signatures) {
+  serialize() {
+    if (!this.signatures) {
       throw new Error("need signature")
     }
 
@@ -140,9 +173,9 @@ class Transaction {
       msg: [msg],
       signatures: this.signatures,
       memo: this.memo,
-      source: 1, // web wallet value is 1
+      source: this.source, // sdk value is 0, web wallet value is 1
       data: "",
-      msgType: txType.StdTx
+      msgType: TxTypes.StdTx
     }
 
     const bytes = encoder.marshalBinary(stdTx)
@@ -154,9 +187,9 @@ class Transaction {
    * @param {Elliptic.PublicKey} unencodedPubKey
    * @return {Buffer}
    */
-  _serializePubKey(unencodedPubKey){
+  _serializePubKey(unencodedPubKey) {
     let format = 0x2
-    if(unencodedPubKey.y && unencodedPubKey.y.isOdd()){
+    if (unencodedPubKey.y && unencodedPubKey.y.isOdd()) {
       format |= 0x1
     }
     let pubBz = Buffer.concat([
@@ -171,7 +204,11 @@ class Transaction {
   }
 }
 
-Transaction.txType = txType
-Transaction.typePrefix = typePrefix
+Transaction.TxTypes = TxTypes
+Transaction.TypePrefixes = TypePrefixes
+
+// DEPRECATED: Retained for backward compatibility
+Transaction.txType = TxTypes
+Transaction.typePrefix = TypePrefixes
 
 export default Transaction

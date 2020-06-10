@@ -4,16 +4,24 @@
 import * as crypto from "../crypto"
 import Transaction from "../tx"
 import HttpRequest from "../utils/request"
+import { checkNumber } from "../utils/validateHelper"
 import TokenManagement from "../token/"
+import Swap from "../swap/"
+import Gov from "../gov/"
 import Big from "big.js"
 
-const MAX_INT64 = Math.pow(2, 63)
+const BASENUMBER = Math.pow(10, 8)
 
 export const api = {
   broadcast: "/api/v1/broadcast",
   nodeInfo: "/api/v1/node-info",
   getAccount: "/api/v1/account",
-  getMarkets: "/api/v1/markets"
+  getMarkets: "/api/v1/markets",
+  getSwaps: "/api/v1/atomic-swaps",
+  getOpenOrders: "/api/v1/orders/open",
+  getDepth: "/api/v1/depth",
+  getTransactions: "/api/v1/transactions",
+  getTx: "/api/v1/tx"
 }
 
 const NETWORK_PREFIX_MAPPING = {
@@ -27,7 +35,7 @@ const NETWORK_PREFIX_MAPPING = {
  * @param  {Object}      signMsg the canonical sign bytes for the msg
  * @return {Transaction}
  */
-export const DefaultSigningDelegate = async function(tx, signMsg) {
+export const DefaultSigningDelegate = async function (tx, signMsg) {
   return tx.sign(this.privateKey, signMsg)
 }
 
@@ -35,7 +43,7 @@ export const DefaultSigningDelegate = async function(tx, signMsg) {
  * The default broadcast delegate which immediately broadcasts a transaction.
  * @param {Transaction} signedTx the signed transaction
  */
-export const DefaultBroadcastDelegate = async function(signedTx) {
+export const DefaultBroadcastDelegate = async function (signedTx) {
   return this.sendTransaction(signedTx)
 }
 
@@ -70,29 +78,15 @@ export const LedgerSigningDelegate = (ledgerApp, preSignCb, postSignCb, errCb, h
 
 /**
  * validate the input number.
- * @param {Number} value
- */
-export const checkNumber = (value, name = "input number")=>{
-  if(value <= 0) {
-    throw new Error(`${name} should be a positive number`)
-  }
-
-  if (MAX_INT64 <= value) {
-    throw new Error(`${name} should be less than 2^63`)
-  }
-}
-
-/**
- * validate the input number.
- * @param {Array} outputs 
+ * @param {Array} outputs
  */
 const checkOutputs = (outputs) => {
   outputs.forEach(transfer => {
     const coins = transfer.coins || []
-    coins.forEach(coin => { 
+    coins.forEach(coin => {
       checkNumber(coin.amount)
-      if(!coin.denom){
-        throw new Error(`invalid denmon`)
+      if (!coin.denom) {
+        throw new Error("invalid denmon")
       }
     })
   })
@@ -100,17 +94,17 @@ const checkOutputs = (outputs) => {
 
 /**
  * sum corresponding input coin
- * @param {Array} inputs 
- * @param {Array} coins 
+ * @param {Array} inputs
+ * @param {Array} coins
  */
 const calInputCoins = (inputs, coins) => {
   coins.forEach((coin) => {
-    const existCoin = inputs[0].coins.find(c=>c.denom === coin.denom)
-    if(existCoin) {
+    const existCoin = inputs[0].coins.find(c => c.denom === coin.denom)
+    if (existCoin) {
       const existAmount = new Big(existCoin.amount)
       existCoin.amount = Number(existAmount.plus(coin.amount).toString())
     } else {
-      inputs[0].coins.push({...coin})
+      inputs[0].coins.push({ ...coin })
     }
   })
 }
@@ -120,18 +114,22 @@ const calInputCoins = (inputs, coins) => {
  */
 export class BncClient {
   /**
-   * @param {string} server Binance Chain public url
+   * @param {String} server Binance Chain public url
    * @param {Boolean} useAsyncBroadcast use async broadcast mode, faster but less guarantees (default off)
+   * @param {Number} source where does this transaction come from (default 0)
    */
-  constructor(server, useAsyncBroadcast=false) {
-    if(!server) {
+  constructor(server, useAsyncBroadcast = false, source = 0) {
+    if (!server) {
       throw new Error("Binance chain server should not be null")
     }
     this._httpClient = new HttpRequest(server)
     this._signingDelegate = DefaultSigningDelegate
     this._broadcastDelegate = DefaultBroadcastDelegate
     this._useAsyncBroadcast = useAsyncBroadcast
+    this._source = source
     this.tokens = new TokenManagement(this)
+    this.swap = new Swap(this)
+    this.gov = new Gov(this)
   }
 
   /**
@@ -139,7 +137,7 @@ export class BncClient {
    * @return {Promise}
    */
   async initChain() {
-    if(!this.chainId) {
+    if (!this.chainId) {
       const data = await this._httpClient.request("get", api.nodeInfo)
       this.chainId = data.result.node_info && data.result.node_info.network
     }
@@ -157,21 +155,37 @@ export class BncClient {
 
   /**
    * Sets the client's private key for calls made by this client. Asynchronous.
+   * @param {string} privateKey the private key hexstring
+   * @param {boolean} localOnly set this to true if you will supply an account_number yourself via `setAccountNumber`. Warning: You must do that if you set this to true!
    * @return {Promise}
    */
-  async setPrivateKey(privateKey) {
+  async setPrivateKey(privateKey, localOnly = false) {
     if (privateKey !== this.privateKey) {
       const address = crypto.getAddressFromPrivateKey(privateKey, this.addressPrefix)
-      if (!address) throw new Error("address is falsy: ${address}. invalid private key?")
+      if (!address) throw new Error(`address is falsy: ${address}. invalid private key?`)
       if (address === this.address) return this // safety
       this.privateKey = privateKey
       this.address = address
-      // _setPkPromise used in _sendTransaction for non-await calls
-      const promise = this._setPkPromise = this._httpClient.request("get", `${api.getAccount}/${address}`)
-      const data = await promise
-      this.account_number = data.result.account_number
+      if (!localOnly) {
+        // _setPkPromise is used in _sendTransaction for non-await calls
+        try {
+          const promise = this._setPkPromise = this._httpClient.request("get", `${api.getAccount}/${address}`)
+          const data = await promise
+          this.account_number = data.result.account_number
+        } catch (e) {
+          throw new Error(`unable to query the address on the blockchain. try sending it some funds first: ${address}`)
+        }
+      }
     }
     return this
+  }
+
+  /**
+   * Sets the client's account number.
+   * @param {boolean} accountNumber
+   */
+  setAccountNumber(accountNumber) {
+    this.account_number = accountNumber
   }
 
   /**
@@ -179,7 +193,7 @@ export class BncClient {
    * @param {Boolean} useAsyncBroadcast
    * @return {BncClient} this instance (for chaining)
    */
-  useAsyncBroadcast(useAsyncBroadcast=true) {
+  useAsyncBroadcast(useAsyncBroadcast = true) {
     this._useAsyncBroadcast = useAsyncBroadcast
     return this
   }
@@ -247,10 +261,12 @@ export class BncClient {
    * @param {Number} sequence optional sequence
    * @return {Promise} resolves with response (success or fail)
    */
-  async transfer(fromAddress, toAddress, amount, asset, memo="", sequence=null) {
+  async transfer(fromAddress, toAddress, amount, asset, memo = "", sequence = null) {
     const accCode = crypto.decodeAddress(fromAddress)
     const toAccCode = crypto.decodeAddress(toAddress)
-    amount = parseInt(amount * Math.pow(10, 8))
+
+    amount = new Big(amount)
+    amount = Number(amount.mul(BASENUMBER).toString())
 
     checkNumber(amount, "amount")
 
@@ -322,23 +338,23 @@ export class BncClient {
    * @param {Number} sequence optional sequence
    * @return {Promise} resolves with response (success or fail)
    */
-  async multiSend(fromAddress, outputs, memo="", sequence=null) {
-    if(!fromAddress) {
+  async multiSend(fromAddress, outputs, memo = "", sequence = null) {
+    if (!fromAddress) {
       throw new Error("fromAddress should not be falsy")
     }
 
-    if(!Array.isArray(outputs)) {
+    if (!Array.isArray(outputs)) {
       throw new Error("outputs should be array")
     }
 
     checkOutputs(outputs)
 
     //sort denom by alphbet and init amount
-    outputs.forEach(item=>{
-      item.coins = item.coins.sort((a,b)=> a.denom.localeCompare(b.denom))
-      item.coins.forEach(coin=>{
+    outputs.forEach(item => {
+      item.coins = item.coins.sort((a, b) => a.denom.localeCompare(b.denom))
+      item.coins.forEach(coin => {
         const amount = new Big(coin.amount)
-        coin.amount = Number(amount.mul(Math.pow(10, 8)).toString())
+        coin.amount = Number(amount.mul(BASENUMBER).toString())
       })
     })
 
@@ -349,7 +365,7 @@ export class BncClient {
     outputs.forEach((item) => {
       const toAddcCode = crypto.decodeAddress(item.to)
       calInputCoins(inputs, item.coins)
-      transfers.push({address: toAddcCode, coins: item.coins})
+      transfers.push({ address: toAddcCode, coins: item.coins })
     })
 
     const msg = {
@@ -361,9 +377,9 @@ export class BncClient {
     const signInputs = [{ address: fromAddress, coins: [] }]
     const signOutputs = []
 
-    outputs.forEach((item, index)=>{
+    outputs.forEach((item, index) => {
       signOutputs.push({ address: item.to, coins: [] })
-      item.coins.forEach(c=>{
+      item.coins.forEach(c => {
         signOutputs[index].coins.push(c)
       })
       calInputCoins(signInputs, item.coins)
@@ -386,7 +402,7 @@ export class BncClient {
    * @param {Number} sequence optional sequence
    * @return {Promise} resolves with response (success or fail)
    */
-  async cancelOrder(fromAddress, symbol, refid, sequence=null) {
+  async cancelOrder(fromAddress, symbol, refid, sequence = null) {
     const accCode = crypto.decodeAddress(fromAddress)
 
     const msg = {
@@ -417,23 +433,23 @@ export class BncClient {
    * @param {Number} timeinforce (1-GTC(Good Till Expire), 3-IOC(Immediate or Cancel))
    * @return {Promise} resolves with response (success or fail)
    */
-  async placeOrder(address=this.address, symbol, side, price, quantity, sequence=null, timeinforce=1) {
+  async placeOrder(address = this.address, symbol, side, price, quantity, sequence = null, timeinforce = 1) {
     if (!address) {
       throw new Error("address should not be falsy")
     }
     if (!symbol) {
       throw new Error("symbol should not be falsy")
     }
-    if(side !== 1 && side !== 2){
+    if (side !== 1 && side !== 2) {
       throw new Error("side can only be 1 or 2")
     }
-    if(timeinforce !== 1 && timeinforce !== 3){
+    if (timeinforce !== 1 && timeinforce !== 3) {
       throw new Error("timeinforce can only be 1 or 3")
     }
 
     const accCode = crypto.decodeAddress(address)
 
-    if(sequence !== 0 && !sequence){
+    if (sequence !== 0 && !sequence) {
       const data = await this._httpClient.request("get", `${api.getAccount}/${address}`)
       sequence = data.result && data.result.sequence
     }
@@ -443,12 +459,12 @@ export class BncClient {
 
     const placeOrderMsg = {
       sender: accCode,
-      id: `${accCode.toString("hex")}-${sequence+1}`.toUpperCase(),
+      id: `${accCode.toString("hex")}-${sequence + 1}`.toUpperCase(),
       symbol: symbol,
       ordertype: 2,
       side,
-      price: parseFloat(bigPrice.mul(Math.pow(10, 8)).toString(), 10),
-      quantity: parseFloat(bigQuantity.mul(Math.pow(10, 8)).toString(), 10),
+      price: parseFloat(bigPrice.mul(BASENUMBER).toString(), 10),
+      quantity: parseFloat(bigQuantity.mul(BASENUMBER).toString(), 10),
       timeinforce: timeinforce,
       msgType: "NewOrderMsg",
     }
@@ -472,6 +488,86 @@ export class BncClient {
   }
 
   /**
+   * @param {String} address
+   * @param {Number} proposalId
+   * @param {String} baseAsset
+   * @param {String} quoteAsset
+   * @param {Number} initPrice
+   * @param {Number} sequence optional sequence
+   * @return {Promise} resolves with response (success or fail)
+   */
+  async list(address, proposalId, baseAsset, quoteAsset, initPrice, sequence = null) {
+    const accCode = crypto.decodeAddress(address)
+
+    if (!address) {
+      throw new Error("address should not be falsy")
+    }
+
+    if(proposalId <= 0){
+      throw new Error("proposal id should larger than 0")
+    }
+
+    if(initPrice <= 0){
+      throw new Error("price should larger than 0")
+    }
+
+    if (!baseAsset) {
+      throw new Error("baseAsset should not be falsy")
+    }
+
+    if (!quoteAsset) {
+      throw new Error("quoteAsset should not be falsy")
+    }
+
+    const init_price = Number(new Big(initPrice).mul(BASENUMBER).toString())
+
+    const listMsg = {
+      from: accCode,
+      proposal_id: proposalId,
+      base_asset_symbol: baseAsset,
+      quote_asset_symbol: quoteAsset,
+      init_price: init_price,
+      msgType: "ListMsg"
+    }
+
+    const signMsg = {
+      base_asset_symbol: baseAsset,
+      from: address,
+      init_price: init_price,
+      proposal_id: proposalId,
+      quote_asset_symbol: quoteAsset,
+    }
+
+    const signedTx = await this._prepareTransaction(listMsg, signMsg, address, sequence, "")
+    return this._broadcastDelegate(signedTx)
+  }
+
+  /**
+   * Set account flags
+   * @param {String} address
+   * @param {Number} flags new value of account flags
+   * @param {Number} sequence optional sequence
+   * @return {Promise} resolves with response (success or fail)
+   */
+  async setAccountFlags(address, flags, sequence = null) {
+    const accCode = crypto.decodeAddress(address)
+
+    const msg = {
+      from: accCode,
+      flags: flags,
+      msgType: "SetAccountFlagsMsg"
+    }
+
+    const signMsg = {
+      flags: flags,
+      from: address
+    }
+
+    const signedTx = await this._prepareTransaction(msg, signMsg, address, sequence, "")
+    return this._broadcastDelegate(signedTx)
+  }
+
+  /**
    * Prepare a serialized raw transaction for sending to the blockchain.
    * @param {Object} msg the msg object
    * @param {Object} stdSignMsg the sign doc object used to generate a signature
@@ -480,12 +576,12 @@ export class BncClient {
    * @param {String} memo optional memo
    * @return {Transaction} signed transaction
    */
-  async _prepareTransaction(msg, stdSignMsg, address, sequence=null, memo="") {
-    if ((!this.account_number || !sequence) && address) {
+  async _prepareTransaction(msg, stdSignMsg, address, sequence = null, memo = "") {
+    if ((!this.account_number || (sequence !== 0 && !sequence)) && address) {
       const data = await this._httpClient.request("get", `${api.getAccount}/${address}`)
       sequence = data.result.sequence
       this.account_number = data.result.account_number
-    // if user has not used `await` in its call to setPrivateKey (old API), we should wait for the promise here
+      // if user has not used `await` in its call to setPrivateKey (old API), we should wait for the promise here
     } else if (this._setPkPromise) {
       await this._setPkPromise
     }
@@ -496,6 +592,7 @@ export class BncClient {
       memo: memo,
       msg,
       sequence: parseInt(sequence),
+      source: this._source,
       type: msg.msgType,
     }
 
@@ -520,7 +617,7 @@ export class BncClient {
    * @param {Boolean} sync use synchronous mode, optional
    * @return {Promise} resolves with response (success or fail)
    */
-  async sendRawTransaction(signedBz, sync=!this._useAsyncBroadcast) {
+  async sendRawTransaction(signedBz, sync = !this._useAsyncBroadcast) {
     const opts = {
       data: signedBz,
       headers: {
@@ -540,7 +637,7 @@ export class BncClient {
    * @param {Boolean} sync use synchronous mode, optional
    * @return {Promise} resolves with response (success or fail)
    */
-  async _sendTransaction(msg, stdSignMsg, address, sequence=null, memo="", sync=!this._useAsyncBroadcast) {
+  async _sendTransaction(msg, stdSignMsg, address, sequence = null, memo = "", sync = !this._useAsyncBroadcast) {
     const signedTx = await this._prepareTransaction(msg, stdSignMsg, address, sequence, memo)
     return this.sendTransaction(signedTx, sync)
   }
@@ -550,14 +647,14 @@ export class BncClient {
    * @param {String} address
    * @return {Promise} resolves with http response
    */
-  async getAccount(address=this.address) {
-    if(!address) {
+  async getAccount(address = this.address) {
+    if (!address) {
       throw new Error("address should not be falsy")
     }
     try {
       const data = await this._httpClient.request("get", `${api.getAccount}/${address}`)
       return data
-    } catch(err) {
+    } catch (err) {
       return null
     }
   }
@@ -567,27 +664,138 @@ export class BncClient {
    * @param {String} address optional address
    * @return {Promise} resolves with http response
    */
-  async getBalance(address=this.address) {
+  async getBalance(address = this.address) {
     try {
       const data = await this.getAccount(address)
       return data.result.balances
-    } catch(err) {
+    } catch (err) {
       return []
     }
   }
 
   /**
    * get markets
+   * @param {Number} limit max 1000 is default
    * @param {Number} offset from beggining, default 0
-   * @param {Number} limit, max 1000 is default
    * @return {Promise} resolves with http response
    */
-  async getMarkets(limit=1000, offset=0) {
+  async getMarkets(limit = 1000, offset = 0) {
     try {
       const data = await this._httpClient.request("get", `${api.getMarkets}?limit=${limit}&offset=${offset}`)
       return data
-    } catch(err) {
+    } catch (err) {
       console.warn("getMarkets error", err)
+      return []
+    }
+  }
+
+  /**
+   * get transactions for an account
+   * @param {String} address optional address
+   * @param {Number} offset from beggining, default 0
+   * @return {Promise} resolves with http response
+   */
+  async getTransactions(address = this.address, offset = 0) {
+    try {
+      const data = await this._httpClient.request("get", `${api.getTransactions}?address=${address}&offset=${offset}`)
+      return data
+    } catch (err) {
+      console.warn("getTransactions error", err)
+      return []
+    }
+  }
+
+  /**
+   * get transaction
+   * @param {String} hash the transaction hash
+   * @return {Promise} resolves with http response
+   */
+  async getTx(hash) {
+    try {
+      const data = await this._httpClient.request("get", `${api.getTx}/${hash}`)
+      return data
+    } catch (err) {
+      console.warn("getTx error", err)
+      return []
+    }
+  }
+
+  /**
+   * get depth for a given market
+   * @param {String} symbol the market pair
+   * @return {Promise} resolves with http response
+   */
+  async getDepth(symbol = "BNB_BUSD-BD1") {
+    try {
+      const data = await this._httpClient.request("get", `${api.getDepth}?symbol=${symbol}`)
+      return data
+    } catch (err) {
+      console.warn("getDepth error", err)
+      return []
+    }
+  }
+
+  /**
+   * get open orders for an address
+   * @param {String} address binance address
+   * @param {String} symbol binance BEP2 symbol
+   * @return {Promise} resolves with http response
+   */
+  async getOpenOrders(address = this.address) {
+    try {
+      const data = await this._httpClient.request("get", `${api.getOpenOrders}?address=${address}`)
+      return data
+    } catch (err) {
+      console.warn("getOpenOrders error", err)
+      return []
+    }
+  }
+
+  /**
+   * get atomic swap
+   * @param {String} swapID: ID of an existing swap
+   * @return {Promise} AtomicSwap
+   */
+  async getSwapByID(swapID) {
+    try {
+      const data = await this._httpClient.request("get", `${api.getSwaps}/${swapID}`)
+      return data
+    } catch (err) {
+      console.warn("query swap by swapID error", err)
+      return []
+    }
+  }
+
+  /**
+   * query atomic swap list by creator address
+   * @param {String} creator: swap creator address
+   * @param {Number} offset from beginning, default 0
+   * @param {Number} limit, max 1000 is default
+   * @return {Promise} Array of AtomicSwap
+   */
+  async getSwapByCreator(creator, limit = 100, offset = 0) {
+    try {
+      const data = await this._httpClient.request("get", `${api.getSwaps}?fromAddress=${creator}&limit=${limit}&offset=${offset}`)
+      return data
+    } catch (err) {
+      console.warn("query swap list by swap creator error", err)
+      return []
+    }
+  }
+
+  /**
+   * query atomic swap list by recipient address
+   * @param {String} recipient: the recipient address of the swap
+   * @param {Number} offset from beginning, default 0
+   * @param {Number} limit, max 1000 is default
+   * @return {Promise} Array of AtomicSwap
+   */
+  async getSwapByRecipient(recipient, limit = 100, offset = 0) {
+    try {
+      const data = await this._httpClient.request("get", `${api.getSwaps}?toAddress=${recipient}&limit=${limit}&offset=${offset}`)
+      return data
+    } catch (err) {
+      console.warn("query swap list by swap recipient error", err)
       return []
     }
   }
@@ -617,8 +825,8 @@ export class BncClient {
    *  keystore
    * }
    */
-  createAccountWithKeystore(password){
-    if(!password){
+  createAccountWithKeystore(password) {
+    if (!password) {
       throw new Error("password should not be falsy")
     }
     const privateKey = crypto.generatePrivateKey()
@@ -654,13 +862,13 @@ export class BncClient {
   /**
    * Recovers an account from a keystore object.
    * @param {object} keystore object.
-   * @param {string} keystore password.
+   * @param {string} password password.
    * {
    * privateKey,
    * address
    * }
    */
-  recoverAccountFromKeystore(keystore, password){
+  recoverAccountFromKeystore(keystore, password) {
     const privateKey = crypto.getPrivateKeyFromKeyStore(keystore, password)
     const address = crypto.getAddressFromPrivateKey(privateKey, this.addressPrefix)
     return {
@@ -677,7 +885,7 @@ export class BncClient {
    * address
    * }
    */
-  recoverAccountFromMnemonic(mnemonic){
+  recoverAccountFromMnemonic(mnemonic) {
     const privateKey = crypto.getPrivateKeyFromMnemonic(mnemonic)
     const address = crypto.getAddressFromPrivateKey(privateKey, this.addressPrefix)
     return {
@@ -686,7 +894,7 @@ export class BncClient {
     }
   }
   // support an old method name containing a typo
-  recoverAccountFromMneomnic(mnemonic){
+  recoverAccountFromMneomnic(mnemonic) {
     return this.recoverAccountFromMnemonic(mnemonic)
   }
 
@@ -698,7 +906,7 @@ export class BncClient {
    * address
    * }
    */
-  recoverAccountFromPrivateKey(privateKey){
+  recoverAccountFromPrivateKey(privateKey) {
     const address = crypto.getAddressFromPrivateKey(privateKey, this.addressPrefix)
     return {
       privateKey,
@@ -709,17 +917,18 @@ export class BncClient {
   /**
    * Validates an address.
    * @param {String} address
+   * @param {String} prefix
    * @return {Boolean}
    */
-  checkAddress(address){
-    return crypto.checkAddress(address)
+  checkAddress(address, prefix = this.addressPrefix) {
+    return crypto.checkAddress(address, prefix)
   }
 
   /**
    * Returns the address for the current account if setPrivateKey has been called on this client.
    * @return {String}
    */
-  getClientKeyAddress(){
+  getClientKeyAddress() {
     if (!this.privateKey) throw new Error("no private key is set on this client")
     const address = crypto.getAddressFromPrivateKey(this.privateKey, this.addressPrefix)
     this.address = address
